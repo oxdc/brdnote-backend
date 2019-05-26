@@ -81,9 +81,9 @@ async def login(login_token: str):
             expire > NOW() 
     """
     c.execute(sql)
-    data = c.execute()
+    data = c.fetchone()
     if data:
-        sessions_count = data
+        sessions_count = data[0]
         if sessions_count > 5:
             return {
                 'status': 'failed',
