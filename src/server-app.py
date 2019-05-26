@@ -24,7 +24,7 @@ async def get_server_info():
 
 
 @app.post('/users/signup/{signup_token}')
-async def login(signup_token: str):
+async def signup(signup_token: str):
     username, password = signup_token.split(':')
     hashed_password = hashlib.sha512(password.encode('utf-8')).hexdigest()
     sql = f"""
@@ -73,6 +73,22 @@ async def login(login_token: str):
             'status': 'failed',
             'message': 'wrong username or password'
         }
+    sql = f"""
+        SELECT COUNT(id) AS `sessions_count`
+        FROM tokens
+        WHERE
+            username = '{username}' AND
+            expire > NOW() 
+    """
+    c.execute(sql)
+    data = c.execute()
+    if data:
+        sessions_count = data
+        if sessions_count > 5:
+            return {
+                'status': 'failed',
+                'message': 'too many sessions.'
+            }
     token = str(uuid.uuid4()).replace('-', '')
     sql = f"""
         INSERT INTO tokens
