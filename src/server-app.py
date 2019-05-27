@@ -338,7 +338,7 @@ async def delete_notebook(notebook_name: str, token: str, access_key: str = ''):
         UPDATE notebooks
         SET deleted = TRUE
         WHERE
-            id = 'notebook_id' AND
+            id = {notebook_id} AND
             owner='{username}'
     """
     db.run_sql(sql)
@@ -725,7 +725,7 @@ async def delete_note(
         UPDATE notes
         SET deleted = TRUE
         WHERE
-            id = '{note_id}' AND
+            id = {note_id} AND
             owner = '{username}'
     """
     db.run_sql(sql)
