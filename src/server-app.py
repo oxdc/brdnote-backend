@@ -808,10 +808,11 @@ def get_note_content(note_key: str, token: str):
             'status': 'failed',
             'message': 'no such file.'
         }
-    with open(f'../notes/{note_key}.brdnote', 'r') as fp:
+    with open(file_path, 'r') as fp:
         lines = fp.readlines()
         content = ''.join(lines)
         return {
             'status': 'ok',
-            'content': content
+            'content': content,
+            'date': os.path.getmtime(file_path)
         }
