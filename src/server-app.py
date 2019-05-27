@@ -2,7 +2,6 @@ from fastapi import FastAPI
 import hashlib
 import mysql.connector
 import uuid
-import easywebdav
 import os
 
 
@@ -781,7 +780,13 @@ def upload_note_content(note_key: str, token: str, content: str):
             'message': 'invalid token.'
         }
     user_id, username, _, expire = data
-    with open(f'../notes/{note_key}.brdnote', 'w') as fp:
+    file_path = f'../notes/{note_key}.brdnote'
+    if os.path.exists(file_path):
+        return {
+            'status': 'failed',
+            'message': 'the note key conflicts.'
+        }
+    with open(file_path, 'w') as fp:
         fp.write(content)
     return {
         'status': 'ok'
@@ -797,6 +802,12 @@ def get_note_content(note_key: str, token: str):
             'message': 'invalid token.'
         }
     user_id, username, _, expire = data
+    file_path = f'../notes/{note_key}.brdnote'
+    if not os.path.exists(file_path):
+        return {
+            'status': 'failed',
+            'message': 'no such file.'
+        }
     with open(f'../notes/{note_key}.brdnote', 'r') as fp:
         lines = fp.readlines()
         content = ''.join(lines)
