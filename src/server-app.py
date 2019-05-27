@@ -287,6 +287,19 @@ async def edit_notebook(
         }
     notebook_id, _, original_rate, original_access_key, original_shared_status = data
     sql = f"""
+        SELECT id
+        FROM notebooks
+        WHERE
+            notebook = '{new_name}' AND
+            deleted = FALSE
+    """
+    data = db.run_sql(sql).one_row
+    if data:
+        return {
+            'status': 'failed',
+            'message': 'the notebook has already existed.'
+        }
+    sql = f"""
         UPDATE notebooks
         SET
             notebook = '{new_name or notebook_name}',
