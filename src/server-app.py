@@ -292,7 +292,7 @@ async def edit_notebook(
             notebook = '{new_name or notebook_name}',
             rate = {rate or original_rate},
             access_key = '{access_key or original_access_key}',
-            shared = {shared or original_shared_status}
+            shared = {shared if shared is not None else original_shared_status}
         WHERE
             id = '{notebook_id}' AND
             owner = '{username}' AND
