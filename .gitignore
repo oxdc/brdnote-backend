@@ -2,7 +2,7 @@
 .idea
 
 # db info
-db_info.py
+*db_info.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

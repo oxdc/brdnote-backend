@@ -6,13 +6,60 @@ import uuid
 import db_info
 
 
-db = mysql.connector.connect(
-    host=db_info.DB_HOST,
-    port=db_info.DB_PORT,
-    user=db_info.DB_USER,
-    passwd=db_info.DB_PASSWORD,
-    database=db_info.DB_DATABASE
-)
+class Database(object):
+    def __init__(self, db_config: dict):
+        self.config = db_config
+        self.__connection__ = None
+        self.__results__ = None
+        self.connect()
+
+    def connect(self):
+        self.__connection__ = mysql.connector.connect(**self.config)
+        self.__connection__.autocommit = True
+        return self
+
+    def run_sql(self, sql: str, n: int = 0):
+        self.__results__ = None
+        try:
+            cursor = self.__connection__.cursor()
+            cursor.execute(sql)
+            self.__results__ = cursor.fetchall()
+        except mysql.connector.OperationalError:
+            if n <= 10:
+                self.connect()
+                self.run_sql(sql, n + 1)
+            else:
+                raise Exception('failed to execute sql.')
+        finally:
+            return self
+
+    @property
+    def db(self):
+        return self.__connection__
+
+    @property
+    def data(self):
+        return self.__results__
+
+    @property
+    def one_row(self):
+        if self.__results__:
+            return self.__results__[0]
+        else:
+            return None
+
+
+config = {
+    'host': db_info.DB_HOST,
+    'port': db_info.DB_PORT,
+    'user': db_info.DB_USER,
+    'passwd': db_info.DB_PASSWORD,
+    'database': db_info.DB_DATABASE,
+    'charset': db_info.DB_CHAR_SET
+}
+
+
+db = Database(config)
 app = FastAPI()
 
 
@@ -32,9 +79,7 @@ async def signup(signup_token: str):
         FROM users
         WHERE username = '{username}'
     """
-    c = db.cursor()
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if data:
         return {
             'status': 'failed',
@@ -46,8 +91,7 @@ async def signup(signup_token: str):
         VALUES
         ('{username}', '{hashed_password}')
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username
@@ -65,9 +109,7 @@ async def login(login_token: str):
             username = '{username}' AND 
             password = '{hashed_password}'
     """
-    c = db.cursor()
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if not data:
         return {
             'status': 'failed',
@@ -80,8 +122,7 @@ async def login(login_token: str):
             username = '{username}' AND
             expire > NOW() 
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if data:
         sessions_count = data[0]
         if sessions_count > 5:
@@ -96,8 +137,7 @@ async def login(login_token: str):
         VALUES
         ('{username}', '{token}', DATE_ADD(NOW(), INTERVAL 1 DAY))
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username,
@@ -107,7 +147,6 @@ async def login(login_token: str):
 
 
 def check_token(token: str):
-    c = db.cursor()
     sql = f"""
         SELECT *
         FROM tokens
@@ -115,9 +154,7 @@ def check_token(token: str):
             token = '{token}' AND 
             expire > NOW()
     """
-    c.execute(sql)
-    data = c.fetchone()
-    return data
+    return db.run_sql(sql).one_row
 
 
 @app.post('/users/logout')
@@ -128,15 +165,13 @@ async def logout(token: str):
             'status': 'failed',
             'message': 'invalid token.'
         }
-    c = db.cursor()
     user_id, username, _, expire = data
     sql = f"""
         UPDATE tokens
         SET expire = DATE_SUB(NOW(), INTERVAL 999 DAY)
         WHERE username = '{username}'
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok'
     }
@@ -150,7 +185,6 @@ async def get_notebooks(token: str):
             'status': 'failed',
             'message': 'invalid token.'
         }
-    c = db.cursor()
     user_id, username, _, expire = data
     sql = f"""
         SELECT id, notebook, owner, rate, access_key, shared
@@ -159,8 +193,7 @@ async def get_notebooks(token: str):
             owner = '{username}' AND 
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchall()
+    data = db.run_sql(sql).data
     records = []
     for column in data:
         notebook_id, notebook_name, owner, rate, access_key, shared = column
@@ -194,7 +227,6 @@ async def create_notebook(
             'message': 'invalid token.'
         }
     user_id, username, _, expire = data
-    c = db.cursor()
     sql = f"""
         SELECT *
         FROM notebooks
@@ -202,8 +234,7 @@ async def create_notebook(
             notebook = '{notebook_name}' AND 
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if data:
         return {
             'status': 'failed',
@@ -215,8 +246,7 @@ async def create_notebook(
         VALUES 
         ('{notebook_name}', '{username}', 0, '{access_key}', {shared})
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username,
@@ -233,8 +263,7 @@ async def edit_notebook(
         new_name: str = None,
         rate: float = None,
         access_key: str = None,
-        shared: bool = None,
-        to_delete: bool = False):
+        shared: bool = None):
     data = check_token(token)
     if not data:
         return {
@@ -242,7 +271,6 @@ async def edit_notebook(
             'message': 'invalid token.'
         }
     user_id, username, _, expire = data
-    c = db.cursor()
     sql = f"""
         SELECT id, notebook, rate, access_key, shared
         FROM notebooks
@@ -251,8 +279,7 @@ async def edit_notebook(
             deleted = FALSE AND
             notebook = '{notebook_name}'
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if not data:
         return {
             'status': 'failed',
@@ -265,21 +292,58 @@ async def edit_notebook(
             notebook = '{new_name or notebook_name}',
             rate = {rate or original_rate},
             access_key = '{access_key or original_access_key}',
-            shared = {shared or original_shared_status},
-            deleted = {to_delete}
+            shared = {shared or original_shared_status}
         WHERE
             id = '{notebook_id}' AND
             owner = '{username}' AND
             deleted = FALSE
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username,
         'user_id': user_id,
         'notebook': new_name or notebook_name,
         'expire': str(expire)
+    }
+
+
+@app.delete('/notebooks/{notebook_name}')
+async def delete_notebook(notebook_name: str, token: str, access_key: str = ''):
+    data = check_token(token)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'invalid token.'
+        }
+    user_id, username, _, expire = data
+    data = check_notebook(notebook_name)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'no such notebook.'
+        }
+    notebook_id, _, owner, shared, key = data
+    if owner != username:
+        return {
+            'status': 'failed',
+            'message': 'access denied.'
+        }
+    elif access_key != key:
+        return {
+            'status': 'failed',
+            'message': 'access denied.'
+        }
+    sql = f"""
+        UPDATE notebooks
+        SET deleted = TRUE
+        WHERE
+            id = 'notebook_id' AND
+            owner='{username}'
+    """
+    db.run_sql(sql)
+    return {
+        'status': 'ok'
     }
 
 
@@ -292,7 +356,6 @@ async def get_shared_notebooks(token: str):
             'message': 'invalid token.'
         }
     user_id, username, _, expire = data
-    c = db.cursor()
     sql = f"""
         SELECT id, notebook, owner, rate
         FROM notebooks
@@ -300,8 +363,7 @@ async def get_shared_notebooks(token: str):
             shared = {True} AND 
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchall()
+    data = db.run_sql(sql).data
     records = []
     for column in data:
         notebook_id, notebook_name, owner, rate = column
@@ -322,7 +384,6 @@ async def get_shared_notebooks(token: str):
 
 
 def check_notebook(notebook_name: str):
-    c = db.cursor()
     sql = f"""
         SELECT id, notebook, owner, shared, access_key
         FROM notebooks
@@ -330,9 +391,7 @@ def check_notebook(notebook_name: str):
             notebook = '{notebook_name}' AND
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchone()
-    return data
+    return db.run_sql(sql).one_row
 
 
 @app.get('/notebooks/{notebook_name}')
@@ -364,7 +423,6 @@ async def get_notes(
             'status': 'failed',
             'message': 'access denied.'
         }
-    c = db.cursor()
     sql = f"""
         SELECT id, title, owner, access_key, path, tags, `read_only`
         FROM notes
@@ -372,8 +430,7 @@ async def get_notes(
             notebook_id = '{notebook_id}' AND
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchall()
+    data = db.run_sql(sql).data
     records = []
     for column in data:
         note_id, title, owner, key, path, tags, read_only = column
@@ -429,7 +486,6 @@ async def upload_note(
             'status': 'failed',
             'message': 'access denied.'
         }
-    c = db.cursor()
     sql = f"""
         SELECT id
         FROM notes
@@ -437,8 +493,7 @@ async def upload_note(
             access_key = '{note_key}' AND 
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if data:
         return {
             'status': 'failed',
@@ -450,8 +505,7 @@ async def upload_note(
         VALUES
         ('{title}', '{username}', '{note_key}', '{notebook_id}', '{path}', '{tags}', {read_only})
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username,
@@ -494,7 +548,6 @@ async def get_note(
             'status': 'failed',
             'message': 'access denied.'
         }
-    c = db.cursor()
     sql = f"""
         SELECT id, title, owner, path, tags, `read_only`
         FROM notes
@@ -503,8 +556,7 @@ async def get_note(
             access_key = '{note_key}' AND
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if not data:
         return {
             'status': 'failed',
@@ -542,8 +594,7 @@ async def edit_note(
         new_notebook_name: str = None,
         path: str = None,
         tags: str = None,
-        read_only: bool = None,
-        to_delete: bool = False
+        read_only: bool = None
 ):
     data = check_token(token)
     if not data:
@@ -569,7 +620,6 @@ async def edit_note(
             'status': 'failed',
             'message': 'access denied.'
         }
-    c = db.cursor()
     if new_notebook_name:
         sql = f"""
             SELECT id, notebook
@@ -578,8 +628,7 @@ async def edit_note(
                 notebook = '{new_notebook_name}' AND
                 deleted = FALSE
         """
-        c.execute(sql)
-        data = c.fetchone()
+        data = db.run_sql(sql).one_row
         if not data:
             return {
                 'status': 'failed',
@@ -596,8 +645,7 @@ async def edit_note(
             access_key = '{note_key}' AND
             deleted = FALSE
     """
-    c.execute(sql)
-    data = c.fetchone()
+    data = db.run_sql(sql).one_row
     if not data:
         return {
             'status': 'failed',
@@ -611,13 +659,11 @@ async def edit_note(
             notebook_id = '{new_notebook_id or notebook_id}',
             path = '{path or original_path}',
             tags = '{tags or original_tags}',
-            `read_only` = {read_only or originally_read_only},
-            deleted = {to_delete}
+            `read_only` = {read_only or originally_read_only}
         WHERE
             id = {note_id}
     """
-    c.execute(sql)
-    db.commit()
+    db.run_sql(sql)
     return {
         'status': 'ok',
         'username': username,
@@ -627,4 +673,62 @@ async def edit_note(
         'title': new_title or original_title,
         'note_key': note_key,
         'expire': str(expire)
+    }
+
+
+@app.delete('/notebooks/{notebook_name}/{note_key}')
+async def delete_note(
+        notebook_name: str,
+        note_key: str,
+        token: str,
+        access_key: str = ''):
+    data = check_token(token)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'invalid token.'
+        }
+    user_id, username, _, expire = data
+    data = check_notebook(notebook_name)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'no such notebook.'
+        }
+    notebook_id, _, owner, shared, key = data
+    if owner != username:
+        return {
+            'status': 'failed',
+            'message': 'access denied.'
+        }
+    elif access_key != key:
+        return {
+            'status': 'failed',
+            'message': 'access denied.'
+        }
+
+    sql = f"""
+        SELECT id, owner
+        FROM notes
+        WHERE
+            access_key = '{note_key}' AND 
+            deleted = FALSE
+    """
+    data = db.run_sql(sql).one_row
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'no such note.'
+        }
+    note_id, _ = data
+    sql = f"""
+        UPDATE notes
+        SET deleted = TRUE
+        WHERE
+            id = '{note_id}' AND
+            owner = '{username}'
+    """
+    db.run_sql(sql)
+    return {
+        'status': 'ok'
     }
