@@ -4,6 +4,9 @@
 # db info
 *db_info.py
 
+# notes
+notes
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

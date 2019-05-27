@@ -2,6 +2,9 @@ from fastapi import FastAPI
 import hashlib
 import mysql.connector
 import uuid
+import easywebdav
+import os
+
 
 import db_info
 
@@ -155,6 +158,28 @@ def check_token(token: str):
             expire > NOW()
     """
     return db.run_sql(sql).one_row
+
+
+@app.post('/users/change_pwd')
+async def change_password(token: str, new_password: str):
+    data = check_token(token)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'invalid token.'
+        }
+    user_id, username, _, expire = data
+    hashed_password = hashlib.sha512(new_password.encode('utf-8')).hexdigest()
+    sql = f"""
+        UPDATE users
+        SET password = '{hashed_password}'
+        WHERE
+            id = {user_id}
+    """
+    db.run_sql(sql)
+    return {
+        'status': 'ok'
+    }
 
 
 @app.post('/users/logout')
@@ -745,3 +770,37 @@ async def delete_note(
     return {
         'status': 'ok'
     }
+
+
+@app.post('/upload/{note_key}')
+def upload_note_content(note_key: str, token: str, content: str):
+    data = check_token(token)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'invalid token.'
+        }
+    user_id, username, _, expire = data
+    with open(f'../notes/{note_key}.brdnote', 'w') as fp:
+        fp.write(content)
+    return {
+        'status': 'ok'
+    }
+
+
+@app.get('/download/{note_key}')
+def get_note_content(note_key: str, token: str):
+    data = check_token(token)
+    if not data:
+        return {
+            'status': 'failed',
+            'message': 'invalid token.'
+        }
+    user_id, username, _, expire = data
+    with open(f'../notes/{note_key}.brdnote', 'r') as fp:
+        lines = fp.readlines()
+        content = ''.join(lines)
+        return {
+            'status': 'ok',
+            'content': content
+        }
