@@ -287,7 +287,7 @@ async def edit_notebook(
         }
     notebook_id, _, original_rate, original_access_key, original_shared_status = data
     sql = f"""
-        SELECT id
+        SELECT id, notebook
         FROM notebooks
         WHERE
             notebook = '{new_name}' AND
